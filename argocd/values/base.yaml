@@ -1,0 +1,12 @@
+# Minimal, override as needed
+server:
+  service:
+    type: ClusterIP
+  ingress:
+    enabled: false
+
+applicationSet:
+  enabled: true
+
+redis-ha:
+  enabled: false
