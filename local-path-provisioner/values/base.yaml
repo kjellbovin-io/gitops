@@ -1,0 +1,11 @@
+# StorageClass that dynamically provisions PVs from a host path on each node
+storageClass:
+  create: true
+  name: local-path
+  defaultClass: true            # mark as default StorageClass
+  reclaimPolicy: Delete
+  volumeBindingMode: WaitForFirstConsumer
+
+# Base directory on nodes where volumes are created
+nodePath: /srv/k8s/local-path   # ensure this exists on your nodes
+pathPattern: "{{ .PVC.namespace }}/{{ .PVC.name }}"

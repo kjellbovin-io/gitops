@@ -1,56 +1,59 @@
-# Install Guide — RKE2 + MetalLB + Argo CD
+# Install Guide — RKE2 + MetalLB + Argo CD  
+*(Vendored Helm charts + App-of-Apps)*
 
-This guide installs a single-node **RKE2** Kubernetes control plane and deploys **MetalLB** and **Argo CD** using **vendored Helm charts**
-from this repo. It also documents the **app‑of‑apps** pattern so Argo CD can manage MetalLB and **itself**.
-
+This repo installs a single-node **RKE2** Kubernetes control plane and deploys **MetalLB** and **Argo CD** using **vendored Helm charts** (air-gapped friendly). It also uses the **app-of-apps** pattern so Argo CD can manage **MetalLB** and **itself** from Git.
 
 ---
 
-## Repo structure
+## Repo structure (at repo root)
 
 ```
-
-── gitops/
-    ├── vendor-versions.env                 # Helmsharts
-    ├── scripts/
-    │   └── vendor_charts.sh                # fetches charts into vendor/
-    │
-    ├── clusters/
-    │   └── prod.yaml                       # ROOT app-of-apps (directory.recurse: true)
-    │
-    ├── argocd/
-    │   ├── values/
-    │   │   ├── base.yaml                   # baseline values
-    │   │   └── custom-values.yaml          
-    │   ├── vendor/
-    │   │   ├── argo-cd-9.0.5/              
-    │   │   └── argo-cd -> argo-cd-9.0.5    # symlink to current version
-    │   └── app.yaml                        # Argo CD self-managing Application
-    │
-    ├── metallb/
-    │   ├── values/
-    │   │   └── base.yaml                   
-    │   ├── manifests/
-    │   │   ├── ipaddresspool.yaml          
-    │   │   └── l2advertisement.yaml
-    │   ├── vendor/
-    │   │   ├── metallb-0.15.2/             
-    │   │   └── metallb -> metallb-0.15.2   
-    │   ├── app-metallb.yaml                # Application (wave 0) installs chart
-    │   └── app-metallb-config.yaml         # Application (wave 1) applies pool/L2
-    │
-    └── INSTALL.md / README.md              # this doc
+.
+├── vendor-versions.env                 # Pins: ARGOCD_CHART_VERSION, METALLB_CHART_VERSION, etc.
+├── scripts/
+│   └── vendor/                         # Modular per-app vendoring scripts
+│       ├── _common.sh
+│       ├── all.sh                      # runs all vendoring scripts
+│       ├── argocd.sh                   # vendors argocd/vendor/argo-cd-<ver>/
+│       ├── metallb.sh                  # vendors metallb/vendor/metallb-<ver>/
+│       └── kube-state-metrics.sh       # example: vendors kube-state-metrics/vendor/... (optional)
+│
+├── clusters/
+│   └── prod.yaml                       # Root Application (app-of-apps) -> scans ./apps/
+│
+├── apps/
+│   ├── argocd.yaml                     # Application -> installs Argo CD from vendored chart
+│   ├── metallb.yaml                    # Application (wave 0) -> installs MetalLB chart
+│   └── metallb-config.yaml             # Application (wave 1) -> applies IP pool + L2Advertisement
+│
+├── argocd/
+│   ├── values/
+│   │   ├── base.yaml
+│   │   └── custom-values.yaml          # your Argo CD overrides (LB IP, flags, replicas, etc.)
+│   └── vendor/
+│       └── argo-cd-9.0.5/              # vendored Argo CD chart (contains Chart.yaml)
+│
+├── metallb/
+│   ├── values/
+│   │   └── base.yaml
+│   ├── manifests/
+│   │   ├── ipaddresspool.yaml          # e.g. 192.168.68.240–192.168.68.250 (edit for your LAN)
+│   │   └── l2advertisement.yaml
+│   └── vendor/
+│       └── metallb-0.15.2/             # vendored MetalLB chart (contains Chart.yaml)
+│
+└── README.md
 ```
 
+> **Vendor folder note**  
+> - `apps/metallb.yaml` (wave 0) installs the **MetalLB chart** from `metallb/vendor/metallb-<version>/`.  
+> - `apps/metallb-config.yaml` (wave 1) applies **pool/L2 CRs** from `metallb/manifests/`.
 
 ---
 
 ## 1) Install RKE2 (Server)
 
-Run on the target node:
-
 ```bash
-# Become root only for the installer
 sudo su
 curl -sfL https://get.rke2.io | sh -
 systemctl enable rke2-server.service
@@ -58,14 +61,13 @@ systemctl start rke2-server.service
 exit
 ```
 
-Wait a minute for the cluster to come up, then configure `kubectl` for your user:
+Configure `kubectl`:
 
 ```bash
 mkdir -p ~/.kube
 sudo cp /etc/rancher/rke2/rke2.yaml ~/.kube/config
 sudo chown "$(id -u)":"$(id -g)" ~/.kube/config
 
-# Add RKE2 kubectl to PATH for this shell and persist it in bashrc
 export PATH=$PATH:/var/lib/rancher/rke2/bin
 echo 'export PATH=$PATH:/var/lib/rancher/rke2/bin' >> ~/.bashrc
 
@@ -78,141 +80,192 @@ echo 'alias k=kubectl' >> ~/.bashrc
 echo 'complete -F __start_kubectl k' >> ~/.bashrc
 ```
 
-Verify the control plane is healthy:
+Verify:
 
 ```bash
 kubectl get nodes -o wide
 kubectl -n kube-system get pods
 ```
 
-You should see the node `Ready` and core pods starting/Running.
-
 ---
 
-## 2) Vendor exact chart versions
+## 2) Vendor exact chart versions (modular per-app scripts)
 
+1) Set versions:
 ```bash
-# Edit versions here to bump later
 sed -n '1,200p' vendor-versions.env
 ```
+
+2) Vendor charts (all at once):
 ```bash
-# Vendor the exact chart versions into ./gitops/*/vendor/
-bash gitops/scripts/vendor_charts.sh
+bash scripts/vendor/all.sh
 ```
 
-This will create (and symlink):
-- `gitops/argocd/vendor/argo-cd-9.0.5/`  and `gitops/argocd/vendor/argo-cd -> argo-cd-9.0.5`
-- `gitops/metallb/vendor/metallb-0.15.2/` and `gitops/metallb/vendor/metallb -> metallb-0.15.2`
+*(Or run a single app’s script, e.g. `bash scripts/vendor/metallb.sh`.)*
+
+This creates:
+- `argocd/vendor/argo-cd-9.0.5/`
+- `metallb/vendor/metallb-0.15.2/`
+
+Commit these if Argo CD will read from your Git remote.
 
 ---
 
-## 3) Install MetalLB (chart + your address pools)
+## 3) Install MetalLB (chart + your address pool)
 
-> **Edit the IP address pool** in `gitops/metallb/manifests/ipaddresspool.yaml` if needed (same L2 as the node, not overlapping DHCP).
-
-Install the chart from the vendored path:
+**Edit** `metallb/manifests/ipaddresspool.yaml` for your LAN (same L2 as the node; avoid DHCP). Then install MetalLB:
 
 ```bash
-# From repo root
-  metallb/vendor/metallb \
-  --namespace metallb-system --create-namespace \
-  -f metallb/values/base.yaml
-# (Optional) add your own overrides: -f ./gitops/metallb/values/custom-values.yaml
+helm upgrade --install metallb   ./metallb/vendor/metallb-0.15.2   --namespace metallb-system --create-namespace   -f ./metallb/values/base.yaml
 ```
 
-Apply your IP pool and L2Advertisement CRs:
+Apply the pool & L2Advertisement:
 
 ```bash
-kubectl -n metallb-system apply -f metallb/manifests/ipaddresspool.yaml
-kubectl -n metallb-system apply -f metallb/manifests/l2advertisement.yaml
+kubectl -n metallb-system apply -f ./metallb/manifests/ipaddresspool.yaml
+kubectl -n metallb-system apply -f ./metallb/manifests/l2advertisement.yaml
 ```
 
-Verify pods:
+Verify:
 
 ```bash
 kubectl -n metallb-system get pods
+kubectl -n metallb-system get ipaddresspools.metallb.io
+kubectl -n metallb-system get l2advertisements.metallb.io
 ```
-
-You should get an external IP from your MetalLB pool.
 
 ---
 
 ## 4) Install Argo CD (chart) with a fixed MetalLB IP
 
-Put your fixed IP and settings in `gitops/argocd/values/custom-values.yaml`, for example:
-
-```yaml
-server:
-  extraArgs:
-    - --insecure
-  service:
-    type: LoadBalancer
-    loadBalancerIP: 192.168.68.240
-    annotations:
-      metallb.universe.tf/address-pool: default-pool
-  ingress:
-    enabled: false
-```
-
-Install Argo CD from the vendored path:
+Put your overrides in `argocd/values/custom-values.yaml` (e.g., `service.type: LoadBalancer`, `loadBalancerIP`, `--insecure`, replicas, etc.), then:
 
 ```bash
-helm upgrade --install argocd \
-  ./argocd/vendor/argo-cd \
-  --namespace argocd --create-namespace \
-  -f ./argocd/values/base.yaml \
-  -f ./argocd/values/custom-values.yaml
+helm upgrade --install argocd   ./argocd/vendor/argo-cd-9.0.5   --namespace argocd --create-namespace   -f ./argocd/values/base.yaml   -f ./argocd/values/custom-values.yaml
 ```
 
-Check status:
+Check and get password:
 
 ```bash
 kubectl -n argocd get pods
-```
-
-Retrieve the initial admin password:
-
-```bash
+kubectl -n argocd get svc argocd-server -o wide
 kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo
 ```
 
-Access options:
-- **LoadBalancer**: `kubectl -n argocd get svc argocd-server` and use the external IP assigned by MetalLB
+---
 
-> Default username is `admin`.
+## 5) App-of-Apps (GitOps)
+
+- The **root app** is `clusters/prod.yaml` and points to the `apps/` folder.  
+- The **child apps** live in `apps/`:
+  - `apps/argocd.yaml` → installs/updates Argo CD from `argocd/vendor/argo-cd-9.0.5` with your values.
+  - `apps/metallb.yaml` (wave 0) → installs MetalLB chart from `metallb/vendor/metallb-0.15.2`.
+  - `apps/metallb-config.yaml` (wave 1) → applies IP pool & L2Advertisement from `metallb/manifests`.
+
+Apply and check:
+
+```bash
+kubectl apply -f clusters/prod.yaml
+kubectl -n argocd get app -o wide
+```
 
 ---
 
-## 5) Let Argo CD manage itself and MetalLB
+## 6) Add a new app (vendored Helm chart)
 
-This repo includes a root **Application** (`gitops/clusters/prod.yaml`) that scans the `gitops/` tree and applies any Application YAMLs.
+Create the app **at repo root** (same level as `argocd/`, `metallb/`, `apps/`) and put its `Application` under `apps/`.
 
-Apply the root Application (after Argo CD is installed):
-```bash
-kubectl apply -f clusters/prod.yaml
-kubectl -n argocd get applications
+### 6.1 Pin version
+Add to `vendor-versions.env` (example):
+```env
+KUBE_STATE_METRICS_CHART_VERSION=5.15.3
 ```
 
-Argo CD will discover:
-- `gitops/argocd/app.yaml` → Argo CD **self‑manages** (reconciles itself).
-- `gitops/metallb/app-metallb.yaml` (wave 0) → installs MetalLB.
-- `gitops/metallb/app-metallb-config.yaml` (wave 1) → applies your pool/L2Advertisement.
+### 6.2 Vendor via per-app script (preferred)
+Use the ready script:
+```
+scripts/vendor/kube-state-metrics.sh
+```
+or add your own by following the pattern in `scripts/vendor/argocd.sh` / `metallb.sh` and `_common.sh`, then run:
+```bash
+bash scripts/vendor/kube-state-metrics.sh
+```
 
-> With the **vendor symlinks** (`vendor/argo-cd`, `vendor/metallb`) you will not need to change `app.yaml` paths on every version bump—just update `vendor-versions.env` and re-run the vendoring script.
+This creates:
+```
+kube-state-metrics/vendor/kube-state-metrics-5.15.3/
+```
+
+### 6.3 Create values
+```bash
+mkdir -p kube-state-metrics/values
+
+cat > kube-state-metrics/values/base.yaml <<'YAML'
+prometheusScrape: false
+YAML
+
+cat > kube-state-metrics/values/custom-values.yaml <<'YAML'
+replicas: 1
+YAML
+```
+
+### 6.4 Add the `Application` under `apps/`
+```yaml
+# apps/kube-state-metrics.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-state-metrics
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/<you>/gitops.git
+    targetRevision: main
+    path: kube-state-metrics/vendor/kube-state-metrics-5.15.3
+    helm:
+      valueFiles:
+        - ../../values/base.yaml
+        - ../../values/custom-values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+```
+
+### 6.5 Commit & push; the root app picks it up
+```bash
+git add apps/kube-state-metrics.yaml kube-state-metrics vendor-versions.env scripts/vendor/
+git commit -m "add kube-state-metrics (vendored) via app-of-apps"
+git push
+
+kubectl -n argocd get app
+```
 
 ---
 
 ## Troubleshooting
 
-- **Pods Pending**: Check node status and `kubectl -n kube-system get pods`. Inspect containerd logs (RKE2 uses containerd).
-- **No External IP for LB**: Confirm MetalLB is running and your `IPAddressPool` range is valid and not overlapping DHCP.
-- **Argo CD UI not reachable**: Verify Service type is `LoadBalancer` and that MetalLB assigned the IP; otherwise port‑forward first.
+- **Root app reads Helm templates** → Ensure `clusters/prod.yaml` points to `path: apps` so it doesn’t recurse into `vendor/`.  
+- **`ComparisonError: app path does not exist`** → The *remote* repo/branch is missing that path. Push your files. Child apps should reference the **versioned** vendor folders.  
+- **Apps show `Unknown`** → Confirm **application-controller** is running:
+  ```bash
+  kubectl -n argocd get deploy,pods
+  ```
+- **No External IP** → Validate MetalLB pods and that your `IPAddressPool` range is correct and free.
 
 ---
 
 ## Summary
 
-You now have:
-- A working **RKE2** control plane
-- **MetalLB** providing LoadBalancer IPs
-- **Argo CD** deployed via vendored charts and optionally self‑managed via the app‑of‑apps pattern
+- **RKE2** cluster up  
+- **MetalLB** provides LoadBalancer IPs  
+- **Argo CD** installed from vendored chart and **self-managed** via app-of-apps  
+- Clear, modular pattern to **vendor** and **add new apps** reproducibly

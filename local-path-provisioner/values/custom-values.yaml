@@ -1,0 +1,5 @@
+# Cluster/env overrides go here.
+# Examples:
+# nodePath: /data/local-path
+# storageClass:
+#   defaultClass: false

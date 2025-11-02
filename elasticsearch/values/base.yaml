@@ -11,11 +11,15 @@ resources:
     cpu: 1
     memory: 2Gi
 
+
 volumeClaimTemplate:
+  storageClassName: local-path
   accessModes: ["ReadWriteOnce"]
   resources:
     requests:
-      storage: 20Gi
+      storage: 50Gi
+
+
 
 # --- Elasticsearch config ---
 # NOTE: If you keep the external IP enabled (below), consider enabling auth in prod.
