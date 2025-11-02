@@ -114,18 +114,17 @@ Install the chart from the vendored path:
 
 ```bash
 # From repo root
-helm upgrade --install metallb \
-  ./gitops/metallb/vendor/metallb \
+  metallb/vendor/metallb \
   --namespace metallb-system --create-namespace \
-  -f ./gitops/metallb/values/base.yaml
+  -f metallb/values/base.yaml
 # (Optional) add your own overrides: -f ./gitops/metallb/values/custom-values.yaml
 ```
 
 Apply your IP pool and L2Advertisement CRs:
 
 ```bash
-kubectl -n metallb-system apply -f ./gitops/metallb/manifests/ipaddresspool.yaml
-kubectl -n metallb-system apply -f ./gitops/metallb/manifests/l2advertisement.yaml
+kubectl -n metallb-system apply -f metallb/manifests/ipaddresspool.yaml
+kubectl -n metallb-system apply -f metallb/manifests/l2advertisement.yaml
 ```
 
 Verify pods:
@@ -159,10 +158,10 @@ Install Argo CD from the vendored path:
 
 ```bash
 helm upgrade --install argocd \
-  ./gitops/argocd/vendor/argo-cd \
+  ./argocd/vendor/argo-cd \
   --namespace argocd --create-namespace \
-  -f ./gitops/argocd/values/base.yaml \
-  -f ./gitops/argocd/values/custom-values.yaml
+  -f ./argocd/values/base.yaml \
+  -f ./argocd/values/custom-values.yaml
 ```
 
 Check status:
@@ -190,7 +189,7 @@ This repo includes a root **Application** (`gitops/clusters/prod.yaml`) that sca
 
 Apply the root Application (after Argo CD is installed):
 ```bash
-kubectl apply -f gitops/clusters/prod.yaml
+kubectl apply -f clusters/prod.yaml
 kubectl -n argocd get applications
 ```
 
