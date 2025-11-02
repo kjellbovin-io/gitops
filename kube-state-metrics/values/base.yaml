@@ -1,0 +1,9 @@
+replicas: 1
+
+# Expose metrics for Prometheus via ServiceMonitor (if you use Prometheus Operator)
+serviceMonitor:
+  enabled: true
+
+# Common labels you might want
+podLabels:
+  app.kubernetes.io/part-of: kube-state-metrics

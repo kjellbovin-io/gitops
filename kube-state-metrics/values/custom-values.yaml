@@ -1,0 +1,12 @@
+# Put environment-specific overrides here
+# examples:
+# resources:
+#   requests:
+#     cpu: 50m
+#     memory: 128Mi
+#   limits:
+#     cpu: 200m
+#     memory: 256Mi
+
+# If you use network policies, you can enable/select them in your cluster-wide setup;
+# the chart itself does not ship one by default.
