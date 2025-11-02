@@ -1,0 +1,14 @@
+# Expose Elasticsearch HTTP service externally via MetalLB
+service:
+  type: LoadBalancer
+  # Pick an address from your MetalLB pool (example below)
+  loadBalancerIP: 192.168.1.246
+  annotations:
+    metallb.universe.tf/address-pool: default
+    # Optionally allow shared IPs across multiple services by name
+    # metallb.universe.tf/allow-shared-ip: monitoring
+
+# Optional: add source ranges if your environment supports it (limits who can reach 9200)
+# loadBalancerSourceRanges:
+#   - 192.168.1.0/24
+#   - 10.0.0.0/8

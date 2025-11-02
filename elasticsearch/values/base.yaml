@@ -1,0 +1,32 @@
+# --- core sizing ---
+replicas: 1
+
+imageTag: "8.5.1"
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 1Gi
+  limits:
+    cpu: 1
+    memory: 2Gi
+
+volumeClaimTemplate:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 20Gi
+
+# --- Elasticsearch config ---
+# NOTE: If you keep the external IP enabled (below), consider enabling auth in prod.
+esConfig:
+  elasticsearch.yml: |
+    xpack.security.enabled: false
+
+# --- Services ---
+# HTTP (port 9200) will be exposed via MetalLB using custom-values.yaml.
+# Transport (9300) stays ClusterIP for intra-cluster comms.
+service:
+  type: ClusterIP
+  httpPort: 9200
+  transportPort: 9300
