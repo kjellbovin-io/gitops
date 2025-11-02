@@ -1,12 +1,25 @@
 server:
+  replicas: 3
   extraArgs:
     - --insecure
-
   service:
     type: LoadBalancer
     loadBalancerIP: 192.168.68.240
     annotations:
       metallb.universe.tf/address-pool: default-pool
-
   ingress:
     enabled: false
+
+repoServer:
+  replicas: 3
+
+controller:
+  replicas: 3
+
+# Optional (uncomment if you want these scaled too)
+# applicationSet:
+#   replicas: 3
+# notifications:
+#   replicas: 3
+# dex:
+#   replicas: 3
